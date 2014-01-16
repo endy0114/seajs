@@ -3,12 +3,10 @@
  * ref: tests/research/load-js-css/test.html
  */
 
-var head = doc.getElementsByTagName("head")[0] || doc.documentElement
+var head = doc.head || doc.getElementsByTagName("head")[0] || doc.documentElement
 var baseElement = head.getElementsByTagName("base")[0]
 
 var IS_CSS_RE = /\.css(?:\?|$)/i
-var READY_STATE_RE = /^(?:loaded|complete|undefined)$/
-
 var currentlyAddingScript
 var interactiveScript
 
@@ -32,7 +30,7 @@ function request(url, callback, charset) {
     }
   }
 
-  addOnload(node, callback, isCSS)
+  addOnload(node, callback, isCSS, url)
 
   if (isCSS) {
     node.rel = "stylesheet"
@@ -56,33 +54,45 @@ function request(url, callback, charset) {
   currentlyAddingScript = null
 }
 
-function addOnload(node, callback, isCSS) {
-  var missingOnload = isCSS && (isOldWebKit || !("onload" in node))
+function addOnload(node, callback, isCSS, url) {
+  var supportOnload = "onload" in node
 
   // for Old WebKit and Old Firefox
-  if (missingOnload) {
+  if (isCSS && (isOldWebKit || !supportOnload)) {
     setTimeout(function() {
       pollCss(node, callback)
     }, 1) // Begin after node insertion
     return
   }
 
-  node.onload = node.onerror = node.onreadystatechange = function() {
-    if (READY_STATE_RE.test(node.readyState)) {
-
-      // Ensure only run once and handle memory leak in IE
-      node.onload = node.onerror = node.onreadystatechange = null
-
-      // Remove the script to reduce memory leak
-      if (!isCSS && !data.debug) {
-        head.removeChild(node)
-      }
-
-      // Dereference the node
-      node = null
-
-      callback()
+  if (supportOnload) {
+    node.onload = onload
+    node.onerror = function() {
+      emit("error", { uri: url, node: node })
+      onload()
     }
+  }
+  else {
+    node.onreadystatechange = function() {
+      if (/loaded|complete/.test(node.readyState)) {
+        onload()
+      }
+    }
+  }
+
+  function onload() {
+    // Ensure only run once and handle memory leak in IE
+    node.onload = node.onerror = node.onreadystatechange = null
+
+    // Remove the script to reduce memory leak
+    if (!isCSS && !data.debug) {
+      head.removeChild(node)
+    }
+
+    // Dereference the node
+    node = null
+
+    callback()
   }
 }
 
@@ -147,4 +157,8 @@ function getCurrentScript() {
     }
   }
 }
+
+
+// For Developers
+seajs.request = request
 
